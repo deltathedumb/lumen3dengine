@@ -22,15 +22,20 @@ Anything outside that vocabulary raises ShaderDSLError at transpile time
 
 Quick start::
 
-    from pugtk._glsl_dsl import vertex_shader, fragment_shader, vec3, vec4, mat4, Uniform, transpile
+    from pugtk._glsl_dsl import (
+        vertex_shader, fragment_shader, vec3, vec4, mat4,
+        Uniform, Varying, set_varying, transpile,
+    )
 
     @vertex_shader
     def vs(aPos: vec3, aNormal: vec3) -> vec4:
         mvp: mat4 = Uniform("mvp")
+        set_varying("vNormal", aNormal)
         return mvp * vec4(aPos, 1.0)
 
     @fragment_shader
-    def fs(normal: vec3) -> vec4:
+    def fs() -> vec4:
+        normal: vec3 = Varying("vNormal")
         light_dir: vec3 = Uniform("light_dir")
         intensity: float = max(dot(normalize(normal), light_dir), 0.0)
         return vec4(intensity, intensity, intensity, 1.0)
@@ -129,6 +134,21 @@ def Varying(name: str):
     )
 
 
+def set_varying(name: str, value):
+    """Statement form `set_varying("name", expr)` in a vertex shader --
+    writes `expr` to the GLSL `out` varying `name` (declared with the
+    matching fragment shader's `Varying("name")` type), in addition to
+    that vertex shader's `gl_Position` return. Never actually called; the
+    transpiler pattern-matches this call shape directly. The varying's
+    GLSL type is inferred from `expr`'s own declared/inferred type where
+    possible, or must be unambiguous from a single local/parameter name."""
+    raise ShaderDSLError(
+        "set_varying(...) called directly -- only valid as a bare "
+        "expression statement inside a @vertex_shader function, e.g. "
+        '`set_varying("vColor", aColor)`.'
+    )
+
+
 @dataclass
 class _ShaderFunc:
     """Captured metadata for a decorated shader function, filled in by
@@ -179,8 +199,26 @@ class _Transpiler:
         self.sf = sf
         self.uniforms: dict[str, str] = {}   # name -> glsl type
         self.varyings_in: dict[str, str] = {}  # name -> glsl type (fragment only)
+        self.varyings_out: dict[str, str] = {}  # name -> glsl type (vertex only, via set_varying)
         self.lines: list[str] = []
         self.indent = 1
+        # local Python name -> real GLSL global name, for `x: T = Uniform("y")`/
+        # `x: T = Varying("y")` where the local name (x) differs from the
+        # GLSL uniform/in name (y) -- no separate GLSL local is declared for
+        # these (there's nothing to initialize it from at the top of
+        # main(), unlike an ordinary local), so every subsequent reference
+        # to the local name must resolve through this table to the actual
+        # GLSL identifier instead.
+        self.aliases: dict[str, str] = {}
+        # name -> glsl type, for inferring set_varying()'s value type.
+        # Seeded from this function's own parameters; growed by each
+        # AnnAssign local as the body is walked top to bottom (so a
+        # set_varying() call can only reference a parameter or a local
+        # declared earlier in the same function, matching normal GLSL
+        # declare-before-use scoping).
+        self.local_types: dict[str, str] = {}
+        for a in sf.tree.args.args:
+            self.local_types[a.arg] = _annotation_to_glsl(a.annotation, f"parameter {a.arg!r}")
 
     def _emit(self, text: str) -> None:
         self.lines.append(("    " * self.indent) + text)
@@ -213,6 +251,13 @@ class _Transpiler:
         elif isinstance(node, ast.For):
             self._for(node)
         elif isinstance(node, ast.Expr):
+            if (
+                isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "set_varying"
+            ):
+                self._set_varying(node.value)
+                return
             # Expression statement (e.g. a bare call) -- emit as a
             # statement with no assignment.
             self._emit(f"{self._expr(node.value)};")
@@ -240,6 +285,12 @@ class _Transpiler:
         ):
             uname = self._literal_str_arg(value, "Uniform")
             self.uniforms[uname] = ty
+            # No GLSL local declared -- `name` (the Python local) aliases
+            # directly to the GLSL uniform `uname`, which may differ (e.g.
+            # `m: mat4 = Uniform("mvp")` -- body references `m`, GLSL
+            # declares and must reference `mvp`).
+            self.aliases[name] = uname
+            self.local_types[name] = ty
             return  # uniform declarations are emitted at file level, not inline
         if (
             isinstance(value, ast.Call)
@@ -248,16 +299,62 @@ class _Transpiler:
         ):
             uname = self._literal_str_arg(value, "Varying")
             self.varyings_in[uname] = ty
+            self.aliases[name] = uname
+            self.local_types[name] = ty
             return
         if value is None:
             self._emit(f"{ty} {name};")
         else:
             self._emit(f"{ty} {name} = {self._expr(value)};")
+        self.local_types[name] = ty
 
     def _literal_str_arg(self, call: ast.Call, fname: str) -> str:
         if len(call.args) != 1 or not isinstance(call.args[0], ast.Constant) or not isinstance(call.args[0].value, str):
             raise ShaderDSLError(f"{fname}(...) requires exactly one string-literal argument")
         return call.args[0].value
+
+    def _set_varying(self, call: ast.Call) -> None:
+        if len(call.args) != 2 or not isinstance(call.args[0], ast.Constant) or not isinstance(call.args[0].value, str):
+            raise ShaderDSLError(
+                'set_varying(...) requires exactly 2 arguments: a string-literal '
+                'name and a value, e.g. set_varying("vColor", aColor)'
+            )
+        vname = call.args[0].value
+        value_node = call.args[1]
+        ty = self._infer_type(value_node)
+        if vname in self.varyings_out and self.varyings_out[vname] != ty:
+            raise ShaderDSLError(
+                f"set_varying({vname!r}, ...) called with inconsistent types "
+                f"({self.varyings_out[vname]!r} vs {ty!r})"
+            )
+        self.varyings_out[vname] = ty
+        self._emit(f"{vname} = {self._expr(value_node)};")
+
+    def _infer_type(self, node: ast.expr) -> str:
+        """Best-effort GLSL type inference for set_varying()'s value -- only
+        needs to handle the common case (a bare parameter/local name, or a
+        type-constructor call like vec3(...)) since that covers every
+        realistic "pass this value through to the fragment shader" use."""
+        if isinstance(node, ast.Name) and node.id in self.local_types:
+            return self.local_types[node.id]
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in _TYPE_NAMES
+        ):
+            return node.func.id
+        if isinstance(node, ast.Attribute) and all(
+            c in _SWIZZLE_CHARS for c in node.attr
+        ):
+            n = len(node.attr)
+            if n == 1:
+                return "float"
+            return {2: "vec2", 3: "vec3", 4: "vec4"}[n]
+        raise ShaderDSLError(
+            f"set_varying(...): can't infer a GLSL type for {ast.dump(node)} -- "
+            "pass a plain parameter/local name, a type constructor call "
+            "(e.g. vec3(...)), or a swizzle"
+        )
 
     def _assign(self, node: ast.Assign) -> None:
         if len(node.targets) != 1:
@@ -309,7 +406,7 @@ class _Transpiler:
 
     def _expr(self, node: ast.expr) -> str:
         if isinstance(node, ast.Name):
-            return node.id
+            return self.aliases.get(node.id, node.id)
         if isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
                 return "true" if node.value else "false"
@@ -419,7 +516,7 @@ def transpile(sf: _ShaderFunc, version: str = "330 core") -> str:
     if sf.kind == "vertex":
         for i, (pname, pty) in enumerate(params):
             lines.append(f"layout(location = {i}) in {pty} {pname};")
-        for vname, vty in t.varyings_in.items():
+        for vname, vty in t.varyings_out.items():
             lines.append(f"out {vty} {vname};")
     else:
         for pname, pty in params:

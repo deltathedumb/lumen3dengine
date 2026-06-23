@@ -37,6 +37,18 @@ class Mesh:
     # (Gouraud shading) instead of using one flat per-triangle normal, for
     # smooth-looking lighting on a mesh that's meant to look rounded.
     vertex_normals: list[Vector3]
+    # GPU upload cache for GLRenderer3D (see pugtk/_renderer3d_gl.py).
+    # Unused by the software Renderer3D -- gl_uploaded stays 0 for any
+    # Mesh that's never drawn through GLRenderer3D, and these fields cost
+    # nothing beyond the per-instance storage. Caching here (rather than a
+    # separate id(mesh)-keyed dict inside GLRenderer3D) means re-rendering
+    # the same Mesh next frame is a single `if mesh.gl_uploaded` check, not
+    # a dict lookup, and the cache can never go stale by outliving its
+    # Mesh (it's freed whenever the Mesh itself is).
+    gl_uploaded: int
+    gl_vao: int
+    gl_vbo: int
+    gl_vertex_count: int
 
     def __init__(
         self,
@@ -61,6 +73,10 @@ class Mesh:
         self.tri_u2 = tri_u2
         self.tri_v2 = tri_v2
         self.vertex_normals = vertex_normals
+        self.gl_uploaded = 0
+        self.gl_vao = 0
+        self.gl_vbo = 0
+        self.gl_vertex_count = 0
 
     @staticmethod
     def compute_vertex_normals(

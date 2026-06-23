@@ -151,7 +151,7 @@ def check(label: str):
 
 # ---- Compile + link the shader program -----------------------------------
 
-shader_source_ptr: int = int(getattr(glfns, "glShaderSource", 0))
+shader_source_ptr: int = gl_resolve(glfns, "glShaderSource")
 
 vs_id: int = int(glfns.glCreateShader(gl.VERTEX_SHADER))
 gl.shader_source(shader_source_ptr, vs_id, vs_src)
