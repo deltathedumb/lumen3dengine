@@ -17,3 +17,6 @@ from ._shading import (
 )
 from ._scene import SceneObject
 from ._renderer3d import Renderer3D
+from ._light import PointLight
+from ._mesh_loader import load_obj
+from ._gltf_loader import load_gltf

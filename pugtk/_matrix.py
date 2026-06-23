@@ -173,6 +173,30 @@ class Matrix4:
         ])
 
     @staticmethod
+    def ortho(left: float, right: float, bottom: float, top: float, near: float, far: float):
+        """Orthographic projection (no perspective divide) -- used for a
+        directional light's shadow-map projection, where the light has no
+        single eye point and casts parallel rays instead."""
+        return Matrix4([
+            2.0 / (right - left),
+            0.0,
+            0.0,
+            -(right + left) / (right - left),
+            0.0,
+            2.0 / (top - bottom),
+            0.0,
+            -(top + bottom) / (top - bottom),
+            0.0,
+            0.0,
+            -2.0 / (far - near),
+            -(far + near) / (far - near),
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ])
+
+    @staticmethod
     def look_at(eye: Vector3, target: Vector3, up: Vector3):
         forward: Vector3 = eye - target
         z: Vector3 = forward.normalized()

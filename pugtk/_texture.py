@@ -16,11 +16,19 @@ class Texture:
     width: int
     height: int
     pixels: list[int]
+    # GPU upload cache for GLRenderer3D (see pugtk/_renderer3d_gl.py) --
+    # same pattern as Mesh's gl_uploaded/gl_vao/gl_vbo fields: inert and
+    # unused by the software Renderer3D, costs nothing beyond per-
+    # instance storage, and can never go stale by outliving its Texture.
+    gl_uploaded: int
+    gl_tex: int
 
     def __init__(self, width: int, height: int, pixels: list[int]):
         self.width = width
         self.height = height
         self.pixels = pixels
+        self.gl_uploaded = 0
+        self.gl_tex = 0
 
     def get_pixel(self, x: int, y: int) -> int:
         cx: int = x

@@ -96,7 +96,11 @@ class mat4(_GLSLType):
     glsl_name = "mat4"
 
 
-_TYPE_NAMES = {"vec2", "vec3", "vec4", "mat3", "mat4", "float", "int", "bool"}
+class sampler2D(_GLSLType):
+    glsl_name = "sampler2D"
+
+
+_TYPE_NAMES = {"vec2", "vec3", "vec4", "mat3", "mat4", "float", "int", "bool", "sampler2D"}
 
 # GLSL built-in functions this DSL recognizes and passes through verbatim
 # (same name, same arity rules as GLSL itself). Calling anything not in
@@ -191,6 +195,24 @@ def _annotation_to_glsl(node: ast.expr | None, ctx: str) -> str:
     raise ShaderDSLError(f"{ctx}: unsupported type annotation {ast.dump(node)!r}")
 
 
+def _annotation_array_size(node: ast.expr | None, ctx: str) -> "tuple[str, int] | None":
+    """Recognizes `vec3[4]`-shaped annotations (ast.Subscript with an
+    int-literal index) for array uniforms -- e.g. `lights: vec3[4] =
+    Uniform("pointLightPos")` declares `uniform vec3 pointLightPos[4]`.
+    Returns (elem_glsl_type, count) for a Subscript annotation, or None
+    for a plain (non-array) annotation; raises for anything else
+    shaped like a subscript but not `Name[int-literal]`."""
+    if not isinstance(node, ast.Subscript):
+        return None
+    base = node.value
+    if not isinstance(base, ast.Name) or base.id not in _TYPE_NAMES:
+        raise ShaderDSLError(f"{ctx}: unsupported array element type in {ast.dump(node)!r}")
+    idx = node.slice
+    if not isinstance(idx, ast.Constant) or not isinstance(idx.value, int) or idx.value <= 0:
+        raise ShaderDSLError(f"{ctx}: array size must be a positive int literal, e.g. vec3[4]")
+    return (base.id, idx.value)
+
+
 class _Transpiler:
     """Walks one shader function's AST, emitting GLSL statement/expression
     text. One instance per transpile() call -- not reused across shaders."""
@@ -198,6 +220,11 @@ class _Transpiler:
     def __init__(self, sf: _ShaderFunc):
         self.sf = sf
         self.uniforms: dict[str, str] = {}   # name -> glsl type
+        # name -> array length, for uniforms declared `T = Uniform("name")`
+        # with an array-shaped annotation (vec3[4]). Absent (no key) means
+        # an ordinary scalar uniform -- only consulted at declaration-
+        # emission time in transpile().
+        self.uniform_array_size: dict[str, int] = {}
         self.varyings_in: dict[str, str] = {}  # name -> glsl type (fragment only)
         self.varyings_out: dict[str, str] = {}  # name -> glsl type (vertex only, via set_varying)
         self.lines: list[str] = []
@@ -276,8 +303,26 @@ class _Transpiler:
         if not isinstance(node.target, ast.Name):
             raise ShaderDSLError("annotated assignment target must be a plain name")
         name = node.target.id
-        ty = _annotation_to_glsl(node.annotation, f"local {name!r}")
         value = node.value
+        array_shape = _annotation_array_size(node.annotation, f"local {name!r}")
+        if array_shape is not None:
+            if not (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id == "Uniform"
+            ):
+                raise ShaderDSLError(
+                    f"local {name!r}: an array-shaped annotation (e.g. vec3[4]) "
+                    "is only supported for Uniform(...) declarations"
+                )
+            elem_ty, count = array_shape
+            uname = self._literal_str_arg(value, "Uniform")
+            self.uniforms[uname] = elem_ty
+            self.uniform_array_size[uname] = count
+            self.aliases[name] = uname
+            self.local_types[name] = elem_ty + "[]"
+            return
+        ty = _annotation_to_glsl(node.annotation, f"local {name!r}")
         if (
             isinstance(value, ast.Call)
             and isinstance(value.func, ast.Name)
@@ -438,6 +483,10 @@ class _Transpiler:
             return "(" + f" {op} ".join(parts) + ")"
         if isinstance(node, ast.Call):
             return self._call(node)
+        if isinstance(node, ast.Subscript):
+            base = self._expr(node.value)
+            index = self._expr(node.slice)
+            return f"{base}[{index}]"
         raise ShaderDSLError(f"unsupported expression: {ast.dump(node)}")
 
     def _call(self, node: ast.Call) -> str:
@@ -526,7 +575,11 @@ def transpile(sf: _ShaderFunc, version: str = "330 core") -> str:
         lines.append(f"out vec4 {_FragmentTranspiler.OUT_NAME};")
 
     for uname, uty in t.uniforms.items():
-        lines.append(f"uniform {uty} {uname};")
+        count = t.uniform_array_size.get(uname)
+        if count is None:
+            lines.append(f"uniform {uty} {uname};")
+        else:
+            lines.append(f"uniform {uty} {uname}[{count}];")
 
     lines.append("void main() {")
     lines.append(body)

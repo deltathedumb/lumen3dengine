@@ -219,3 +219,51 @@ class Mesh:
             tri_v2,
             vertex_normals,
         )
+
+    @staticmethod
+    def plane(size: float):
+        """A flat, single-quad XZ-plane (normal +Y) centered at the
+        origin -- a ground/floor mesh, e.g. for shadow-casting demos
+        (GLRenderer3D's shadow pass needs a receiving surface to actually
+        show a shadow on)."""
+        h: float = size / 2.0
+        vertices: list[Vector3] = [
+            Vector3(-h, 0.0, -h),
+            Vector3(h, 0.0, -h),
+            Vector3(h, 0.0, h),
+            Vector3(-h, 0.0, h),
+        ]
+        edges: list[tuple[int, int]] = [
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+        ]
+        # Wound (0,2,1)/(0,3,2) rather than the more obvious (0,1,2)/(0,2,3)
+        # so cross(v1-v0, v2-v0) points +Y (up, toward a camera looking
+        # down at the ground) -- backface culling (CULL_FACE=BACK,
+        # FrontFace=CCW) would otherwise discard this triangle entirely
+        # from above, since (0,1,2)'s cross product points -Y.
+        triangles: list[tuple[int, int, int]] = [
+            (0, 2, 1),
+            (0, 3, 2),
+        ]
+        tri_u0: list[float] = [0.0, 0.0]
+        tri_v0: list[float] = [0.0, 0.0]
+        tri_u1: list[float] = [1.0, 1.0]
+        tri_v1: list[float] = [1.0, 1.0]
+        tri_u2: list[float] = [1.0, 0.0]
+        tri_v2: list[float] = [0.0, 1.0]
+        vertex_normals: list[Vector3] = Mesh.compute_vertex_normals(vertices, triangles)
+        return Mesh(
+            vertices,
+            edges,
+            triangles,
+            tri_u0,
+            tri_v0,
+            tri_u1,
+            tri_v1,
+            tri_u2,
+            tri_v2,
+            vertex_normals,
+        )
