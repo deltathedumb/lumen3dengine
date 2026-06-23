@@ -12,6 +12,8 @@ from ._shading import (
     phong_shader,
     checker_shader,
     textured_shader,
+    pbr_shader,
+    fresnel_rim_shader,
 )
 from ._scene import SceneObject
 from ._renderer3d import Renderer3D

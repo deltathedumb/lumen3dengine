@@ -38,9 +38,15 @@ while ty < tex_size:
     ty = ty + 1
 texture = Texture(tex_size, tex_size, tex_pixels)
 
+# Mesh.cube() splits each face into 2 triangles, so each face color is
+# duplicated for the pair of triangles that make it up.
 face_colors = [
-    color(255, 0, 0), color(0, 255, 0), color(0, 0, 255),
-    color(255, 255, 0), color(255, 0, 255), color(0, 255, 255),
+    color(255, 0, 0), color(255, 0, 0),
+    color(0, 255, 0), color(0, 255, 0),
+    color(0, 0, 255), color(0, 0, 255),
+    color(255, 255, 0), color(255, 255, 0),
+    color(255, 0, 255), color(255, 0, 255),
+    color(0, 255, 255), color(0, 255, 255),
 ]
 
 angle = 0.0

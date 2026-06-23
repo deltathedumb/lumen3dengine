@@ -23,9 +23,11 @@ mesh_c = Mesh.cube(2.0)
 red = color(220, 60, 60)
 blue = color(60, 100, 220)
 yellow = color(220, 200, 60)
-colors_a = [red, red, red, red, red, red]
-colors_b = [blue, blue, blue, blue, blue, blue]
-colors_c = [yellow, yellow, yellow, yellow, yellow, yellow]
+# Mesh.cube() splits each face into 2 triangles (12 total); one color per
+# triangle, all faces the same color here so it's just a flat repeat.
+colors_a = [red, red, red, red, red, red, red, red, red, red, red, red]
+colors_b = [blue, blue, blue, blue, blue, blue, blue, blue, blue, blue, blue, blue]
+colors_c = [yellow, yellow, yellow, yellow, yellow, yellow, yellow, yellow, yellow, yellow, yellow, yellow]
 
 angle = 0.0
 running = 1

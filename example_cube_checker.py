@@ -17,15 +17,23 @@ renderer.ambient = 0.25
 mesh = Mesh.cube(2.0)
 no_texture = Texture.solid(1, 1, 0)
 
-# One base color per cube face (back, front, left, right, bottom, top);
-# checker_shader darkens alternating 0.5-unit cells within each face.
+# Two base colors per cube face (back, front, left, right, bottom, top) --
+# Mesh.cube() splits each face into 2 triangles, so each face color is
+# duplicated for the pair of triangles that make it up. checker_shader
+# darkens alternating 0.5-unit cells within each face.
+back = color(255, 0, 0)
+front = color(0, 255, 0)
+left = color(0, 0, 255)
+right = color(255, 255, 0)
+bottom = color(255, 0, 255)
+top = color(0, 255, 255)
 face_colors = [
-    color(255, 0, 0),    # back
-    color(0, 255, 0),    # front
-    color(0, 0, 255),    # left
-    color(255, 255, 0),  # right
-    color(255, 0, 255),  # bottom
-    color(0, 255, 255),  # top
+    back, back,
+    front, front,
+    left, left,
+    right, right,
+    bottom, bottom,
+    top, top,
 ]
 
 angle = 0.0
