@@ -42,6 +42,61 @@ class AABB:
             return 0
         return 1
 
+    def penetration(self, other: "AABB") -> list[float]:
+        """Returns the minimum translation vector (MTV) to separate self from
+        other as [dx, dy, dz].  Apply +MTV to self's position and -MTV to
+        other's position (or split according to mass/anchored state).
+
+        Returns [0.0, 0.0, 0.0] when the AABBs do not overlap."""
+        ox: float = 0.0
+        if self.max_x > other.min_x and other.max_x > self.min_x:
+            left: float = self.max_x - other.min_x
+            right: float = other.max_x - self.min_x
+            if left < right:
+                ox = -left
+            else:
+                ox = right
+        else:
+            return [0.0, 0.0, 0.0]
+
+        oy: float = 0.0
+        if self.max_y > other.min_y and other.max_y > self.min_y:
+            down: float = self.max_y - other.min_y
+            up: float = other.max_y - self.min_y
+            if down < up:
+                oy = -down
+            else:
+                oy = up
+        else:
+            return [0.0, 0.0, 0.0]
+
+        oz: float = 0.0
+        if self.max_z > other.min_z and other.max_z > self.min_z:
+            back: float = self.max_z - other.min_z
+            front: float = other.max_z - self.min_z
+            if back < front:
+                oz = -back
+            else:
+                oz = front
+        else:
+            return [0.0, 0.0, 0.0]
+
+        ax: float = ox
+        if ax < 0.0:
+            ax = -ax
+        ay: float = oy
+        if ay < 0.0:
+            ay = -ay
+        az: float = oz
+        if az < 0.0:
+            az = -az
+
+        if ax <= ay and ax <= az:
+            return [ox, 0.0, 0.0]
+        if ay <= ax and ay <= az:
+            return [0.0, oy, 0.0]
+        return [0.0, 0.0, oz]
+
 
 def _local_bounds(mesh: Mesh) -> AABB:
     """Local-space (untransformed) AABB of every vertex in `mesh`."""

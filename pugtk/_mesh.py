@@ -1,3 +1,5 @@
+import math
+
 from ._vector import Vector3
 
 
@@ -267,3 +269,176 @@ class Mesh:
             tri_v2,
             vertex_normals,
         )
+
+    @staticmethod
+    def sphere(radius: float, stacks: int, slices: int):
+        """UV sphere centered at the origin.
+
+        stacks: latitude rings (min 2); slices: longitude segments (min 3).
+        Mesh.sphere(1.0, 12, 16) is a good default for a round ball."""
+        vertices: list[Vector3] = []
+        tri_u0: list[float] = []
+        tri_v0: list[float] = []
+        tri_u1: list[float] = []
+        tri_v1: list[float] = []
+        tri_u2: list[float] = []
+        tri_v2: list[float] = []
+        triangles: list[tuple[int, int, int]] = []
+
+        si: int = 0
+        while si <= stacks:
+            phi: float = math.pi * float(si) / float(stacks)
+            sp: float = math.sin(phi)
+            cp: float = math.cos(phi)
+            li: int = 0
+            while li <= slices:
+                theta: float = 2.0 * math.pi * float(li) / float(slices)
+                x: float = sp * math.cos(theta)
+                y: float = cp
+                z: float = sp * math.sin(theta)
+                vertices.append(Vector3(x * radius, y * radius, z * radius))
+                li = li + 1
+            si = si + 1
+
+        row_len: int = slices + 1
+        si = 0
+        while si < stacks:
+            li = 0
+            while li < slices:
+                a: int = si * row_len + li
+                b: int = a + 1
+                c: int = a + row_len
+                d: int = c + 1
+                u0: float = float(li) / float(slices)
+                u1: float = float(li + 1) / float(slices)
+                v0: float = float(si) / float(stacks)
+                v1: float = float(si + 1) / float(stacks)
+                if si > 0:
+                    triangles.append((a, b, d))
+                    tri_u0.append(u0)
+                    tri_v0.append(v0)
+                    tri_u1.append(u1)
+                    tri_v1.append(v0)
+                    tri_u2.append(u1)
+                    tri_v2.append(v1)
+                if si < stacks - 1:
+                    triangles.append((a, d, c))
+                    tri_u0.append(u0)
+                    tri_v0.append(v0)
+                    tri_u1.append(u1)
+                    tri_v1.append(v1)
+                    tri_u2.append(u0)
+                    tri_v2.append(v1)
+                li = li + 1
+            si = si + 1
+
+        edges: list[tuple[int, int]] = []
+        vertex_normals: list[Vector3] = Mesh.compute_vertex_normals(vertices, triangles)
+        return Mesh(vertices, edges, triangles,
+                    tri_u0, tri_v0, tri_u1, tri_v1, tri_u2, tri_v2,
+                    vertex_normals)
+
+    @staticmethod
+    def cylinder(radius: float, height: float, slices: int):
+        """Closed cylinder (with top and bottom caps) centered at the origin.
+
+        slices: segments around the circumference (min 3).
+        Mesh.cylinder(0.5, 2.0, 12) is a good default."""
+        vertices: list[Vector3] = []
+        triangles: list[tuple[int, int, int]] = []
+        tri_u0: list[float] = []
+        tri_v0: list[float] = []
+        tri_u1: list[float] = []
+        tri_v1: list[float] = []
+        tri_u2: list[float] = []
+        tri_v2: list[float] = []
+
+        half_h: float = height / 2.0
+
+        bottom_center: int = 0
+        vertices.append(Vector3(0.0, -half_h, 0.0))
+        bi: int = 0
+        while bi < slices:
+            angle: float = 2.0 * math.pi * float(bi) / float(slices)
+            vertices.append(Vector3(radius * math.cos(angle), -half_h, radius * math.sin(angle)))
+            bi = bi + 1
+
+        top_center: int = len(vertices)
+        vertices.append(Vector3(0.0, half_h, 0.0))
+
+        side_bot_start: int = len(vertices)
+        bi = 0
+        while bi < slices:
+            angle = 2.0 * math.pi * float(bi) / float(slices)
+            vertices.append(Vector3(radius * math.cos(angle), -half_h, radius * math.sin(angle)))
+            bi = bi + 1
+
+        side_top_start: int = len(vertices)
+        bi = 0
+        while bi < slices:
+            angle = 2.0 * math.pi * float(bi) / float(slices)
+            vertices.append(Vector3(radius * math.cos(angle), half_h, radius * math.sin(angle)))
+            bi = bi + 1
+
+        top_cap_start: int = len(vertices)
+        vertices.append(Vector3(0.0, half_h, 0.0))
+        bi = 0
+        while bi < slices:
+            angle = 2.0 * math.pi * float(bi) / float(slices)
+            vertices.append(Vector3(radius * math.cos(angle), half_h, radius * math.sin(angle)))
+            bi = bi + 1
+
+        bi = 0
+        while bi < slices:
+            next_bi: int = (bi + 1) % slices
+            triangles.append((bottom_center, 1 + next_bi, 1 + bi))
+            tri_u0.append(0.5)
+            tri_v0.append(0.5)
+            tri_u1.append(float(next_bi) / float(slices))
+            tri_v1.append(0.0)
+            tri_u2.append(float(bi) / float(slices))
+            tri_v2.append(0.0)
+            bi = bi + 1
+
+        bi = 0
+        while bi < slices:
+            next_bi = (bi + 1) % slices
+            sb0: int = side_bot_start + bi
+            sb1: int = side_bot_start + next_bi
+            st0: int = side_top_start + bi
+            st1: int = side_top_start + next_bi
+            u0: float = float(bi) / float(slices)
+            u1: float = float(bi + 1) / float(slices)
+            triangles.append((sb0, sb1, st1))
+            tri_u0.append(u0)
+            tri_v0.append(0.0)
+            tri_u1.append(u1)
+            tri_v1.append(0.0)
+            tri_u2.append(u1)
+            tri_v2.append(1.0)
+            triangles.append((sb0, st1, st0))
+            tri_u0.append(u0)
+            tri_v0.append(0.0)
+            tri_u1.append(u1)
+            tri_v1.append(1.0)
+            tri_u2.append(u0)
+            tri_v2.append(1.0)
+            bi = bi + 1
+
+        bi = 0
+        while bi < slices:
+            next_bi = (bi + 1) % slices
+            triangles.append((top_cap_start, top_cap_start + 1 + bi, top_cap_start + 1 + next_bi))
+            tri_u0.append(0.5)
+            tri_v0.append(0.5)
+            tri_u1.append(float(bi) / float(slices))
+            tri_v1.append(1.0)
+            tri_u2.append(float(next_bi) / float(slices))
+            tri_v2.append(1.0)
+            bi = bi + 1
+
+        edges: list[tuple[int, int]] = []
+        vertex_normals: list[Vector3] = Mesh.compute_vertex_normals(vertices, triangles)
+        return Mesh(vertices, edges, triangles,
+                    tri_u0, tri_v0, tri_u1, tri_v1, tri_u2, tri_v2,
+                    vertex_normals)

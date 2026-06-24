@@ -27,6 +27,7 @@ from pugtk._mesh import Mesh
 from pugtk._texture import Texture
 
 from ._signal import Signal
+from ._material import Material
 
 
 GRAVITY: float = -9.8
@@ -46,6 +47,9 @@ class Instance:
     velocity: Vector3
     gravity_enabled: int
     anchored: int
+    restitution: float
+
+    material: Material
 
     def __init__(self, name: str, mesh: Mesh, colors: list[int]) -> None:
         self.name = name
@@ -64,6 +68,9 @@ class Instance:
         self.velocity = Vector3(0.0, 0.0, 0.0)
         self.gravity_enabled = 0
         self.anchored = 0
+        self.restitution = 0.0
+
+        self.material = None
 
         self.changed = Signal()
         self.touched = Signal()
@@ -98,6 +105,14 @@ class Instance:
         self._scale = value
         self._model_dirty = 1
         self.changed(2)
+
+    def set_material(self, mat: Material) -> None:
+        """Apply mat to this Instance: stores the reference and rebuilds
+        self.colors from mat.color so the renderer sees the new appearance
+        immediately (no extra step needed in script)."""
+        self.material = mat
+        if self.mesh is not None:
+            self.colors = mat.make_colors(self.mesh)
 
     def physics_step(self, dt: float) -> None:
         """Integrates velocity into position. If gravity_enabled=1 and the
